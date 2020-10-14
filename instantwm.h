@@ -91,7 +91,7 @@ struct Client {
 	int basew, baseh, incw, inch, maxw, maxh, minw, minh;
 	int bw, oldbw;
 	unsigned int tags;
-	int isfixed, isfloating, isurgent, neverfocus, oldstate, isfullscreen, isfakefullscreen, islocked, issticky;
+	int isfixed, isfloating, isurgent, neverfocus, oldstate, isfullscreen, isfakefullscreen, islocked, issticky, snapstatus;
 	Client *next;
 	Client *snext;
 	Monitor *mon;
@@ -104,6 +104,14 @@ typedef struct {
 	void (*func)(const Arg *);
 	const Arg arg;
 } Key;
+
+
+typedef struct {
+    char *cmd;
+	void (*func)(const Arg *);
+	const Arg arg;
+    unsigned int type;
+} Xcommand;
 
 typedef struct {
 	const char *symbol;
@@ -132,6 +140,7 @@ struct Monitor {
 	Client *clients;
 	Client *sel;
 	Client *overlay;
+	Client *fullscreen;
 	int overlaystatus;
     int overlaymode;
 	int scratchvisible;
@@ -218,6 +227,7 @@ void grabkeys(void);
 void hide(Client *c);
 void incnmaster(const Arg *arg);
 void keypress(XEvent *e);
+static int xcommand(void);
 void killclient(const Arg *arg);
 void manage(Window w, XWindowAttributes *wa);
 void mappingnotify(XEvent *e);
@@ -250,6 +260,7 @@ void resizeaspectmouse(const Arg *arg);
 void resizerequest(XEvent *e);
 void restack(Monitor *m);
 void animateclient(Client *c, int x, int y, int w, int h, int frames, int resetpos);
+void checkanimate(Client *c, int x, int y, int w, int h, int frames, int resetpos);
 void run(void);
 void runAutostart(void);
 void scan(void);
@@ -261,6 +272,8 @@ void setclientstate(Client *c, long state);
 void setfocus(Client *c);
 void setfullscreen(Client *c, int fullscreen);
 void setlayout(const Arg *arg);
+void commandlayout(const Arg *arg);
+void commandprefix(const Arg *arg);
 void setmfact(const Arg *arg);
 void setup(void);
 void seturgent(Client *c, int urg);
@@ -285,7 +298,7 @@ void toggleanimated(const Arg *arg);
 void toggledoubledraw(const Arg *arg);
 void togglefakefullscreen(const Arg *arg);
 void togglelocked(const Arg *arg);
-void toggleshowtags();
+void toggleshowtags(const Arg *arg);
 void togglebar(const Arg *arg);
 void togglefloating(const Arg *arg);
 void togglesticky(const Arg *arg);
@@ -351,6 +364,11 @@ void setoverlay();
 void desktopset();
 void createdesktop();
 void createoverlay();
+void tempfullscreen();
+
+void savefloating(Client *c);
+void restorefloating(Client *c);
+
 void shiftview(const Arg *arg);
 void focuslastclient(const Arg *arg);
 

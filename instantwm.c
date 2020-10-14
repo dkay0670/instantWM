@@ -151,12 +151,156 @@ void createdesktop(){
 	}
 }
 
+void resetsnap(Client *c) {
+    if (!c->snapstatus)
+        return;
+    if (c->isfloating || NULL == selmon->lt[selmon->sellt]->arrange ) {
+        c->snapstatus = 0;
+        c->bw = borderpx;
+        restorefloating(c);
+        applysize(c);
+    }
+
+}
+
+
+void saveallfloating(Monitor *m) {
+    int i;
+    Client *c;
+    for (i = 1; i < 20; ++i) {
+        if (m->pertag->ltidxs[i][m->pertag->sellts[i]]->arrange != NULL)
+            continue;
+        for(c = m->clients; c; c = c->next) {
+            if (c->tags & (1 << (i - 1)) && c->snapstatus == 0)
+                savefloating(c);
+        }
+    }
+}
+
+void restoreallfloating(Monitor *m) {
+    int i;
+    Client *c;
+    for (i = 1; i < 20; ++i) {
+        if (m->pertag->ltidxs[i][m->pertag->sellts[i]]->arrange != NULL)
+            continue;
+        for(c = m->clients; c; c = c->next) {
+            if (c->tags & (1 << (i - 1)) && c->snapstatus == 0)
+                restorefloating(c);
+        }
+    }
+}
+
+
+void applysnap(Client *c, Monitor *m) {
+    int mony = m->my + (bh * m->showbar);
+    if (c->snapstatus != 9)
+        c->bw = borderpx;
+    switch (c->snapstatus) {
+        case 0:
+            checkanimate(c, c->sfx, c->sfy, c->sfw, c->sfh, 7, 0);
+            break;
+        case 1:
+            checkanimate(c, m->mx, mony, m->mw, m->mh / 2, 7, 0);
+            break;
+        case 2:
+            checkanimate(c, m->mx + m->mw / 2, mony, m->mw / 2, m->mh / 2, 7, 0);
+            break;
+        case 3:
+            checkanimate(c, m->mx + m->mw / 2, mony, m->mw / 2 - c->bw * 2, m->wh - c->bw * 2, 7, 0);
+            break;
+        case 4:
+            checkanimate(c, m->mx + m->mw / 2, mony + m->mh / 2, m->mw / 2, m->wh / 2, 7, 0);
+            break;
+        case 5:
+            checkanimate(c, m->mx, mony + m->mh / 2, m->mw, m->mh / 2, 7, 0);
+            break;
+        case 6:
+            checkanimate(c, m->mx, mony + m->mh / 2, m->mw / 2, m->wh / 2, 7, 0);
+            break;
+        case 7:
+            checkanimate(c, m->mx, mony, m->mw / 2, m->wh, 7, 0);
+            break;
+        case 8:
+            checkanimate(c, m->mx, mony, m->mw / 2, m->mh / 2, 7, 0);
+            break;
+        case 9:
+            c->bw = 0;
+            checkanimate(c, m->mx, mony, m->mw - c->bw * 2, m->mh + c->bw * 2, 7, 0);
+            if (c == selmon->sel)
+                XRaiseWindow(dpy, c->win);
+            break;
+        default:
+            break;
+    }
+}
+
+int checkfloating(Client *c) {
+    if (c->isfloating || NULL == selmon->lt[selmon->sellt]->arrange )
+        return 1;
+    return 0;
+}
+
+void changesnap(Client *c, int snapmode) {
+    int snapmatrix[10][4] = {
+        {9, 3, 5, 7}, // normal
+        {9, 2, 0, 8}, // top half
+        {2, 2, 3, 1}, //top right
+        {2, 3, 4, 0}, //right half
+        {3, 4, 4, 5}, //bottom right
+        {0, 4, 5, 6}, //bottom half
+        {7, 5, 6, 6}, //bottom left
+        {8, 0, 6, 7}, //left half
+        {8, 1, 7, 1}, //top left
+        {1, 3, 0, 7}, //maximized
+    };
+    int tempsnap;
+    if (!c->snapstatus)
+        c->snapstatus = 0;
+    if (c->snapstatus == 0 && checkfloating(c))
+        savefloating(c);
+    tempsnap = c->snapstatus;
+    c->snapstatus = snapmatrix[tempsnap][snapmode];
+    applysnap(c, c->mon);
+    warp(c);
+    focus(c);
+}
+
+void tempfullscreen() {
+    Client *c;
+    if (selmon->fullscreen) {
+        c = selmon->fullscreen;
+        if (c->isfloating || NULL == selmon->lt[selmon->sellt]->arrange) {
+            restorefloating(c);
+            applysize(c);
+        }
+        selmon->fullscreen = NULL;
+    } else {
+        if (!selmon->sel)
+            return;
+        selmon->fullscreen = selmon->sel;
+        if (selmon->sel->isfloating || NULL == selmon->lt[selmon->sellt]->arrange)
+            savefloating(selmon->fullscreen);
+    }
+
+    if (animated) {
+        animated = 0;
+        arrange(selmon);
+        animated = 1;
+    } else {
+        arrange(selmon);
+    }
+    if (selmon->fullscreen)
+        XRaiseWindow(dpy, selmon->fullscreen->win);
+}
+
 void
 createoverlay() {
 	Monitor *m;
 	Monitor *tm;
 	if (!selmon->sel)
 		return;
+    if (selmon->sel == selmon->fullscreen)
+        tempfullscreen();
 	if (selmon->sel == selmon->overlay) {
 		resetoverlay();
 		for (tm = mons; tm; tm = tm->next) {
@@ -206,6 +350,15 @@ resetoverlay() {
 double easeOutQuint( double t ) {
     return 1 + (--t) * t * t;
 }
+
+void checkanimate(Client *c, int x, int y, int w, int h, int frames, int resetpos) {
+    if (c->x == x && c->y == y && c->w == w && c->h == h) {
+        return;
+    } else {
+        animateclient(c, x, y, w, h, frames, resetpos);
+    }
+}
+
 
 // move client to position within a set amount of frames
 void animateclient(Client *c, int x, int y, int w, int h, int frames, int resetpos)
@@ -260,7 +413,12 @@ showoverlay() {
 	}
 
 	Client *c = selmon->overlay;
+
+	detach(c);
+	detachstack(c);
     c->mon = selmon;
+	attach(c);
+	attachstack(c);
 
 	if (c->islocked) {
             switch (selmon->overlaymode) {
@@ -331,7 +489,8 @@ hideoverlay() {
 	Monitor *m;
 	c = selmon->overlay;
 	c->issticky = 0;
-
+    if (c == selmon->fullscreen)
+        tempfullscreen();
 	if (c->islocked) {
         switch (selmon->overlaymode) {
         case 0:
@@ -387,6 +546,11 @@ void focuslastclient(const Arg *arg) {
 		return;
 
 	c = lastclient;
+
+    if (c->tags & 1 << 20) {
+        togglescratchpad(NULL);
+        return;
+    }
 
 	const Arg a = {.ui = c->tags};
 	if (selmon != c->mon) {
@@ -444,7 +608,38 @@ applyrules(Client *c)
 				c->issticky=1;
 			}
 
-			c->isfloating = r->isfloating;
+            switch (r->isfloating) {
+                case 2:
+                    selmon->sel = c;
+                    c->isfloating = 1;
+                    centerwindow();
+                    break;;
+                case 3:
+                    // fullscreen overlay
+                    selmon->sel = c;
+                    c->isfloating = 1;
+                    c->w = c->mon->mw;
+                    c->h = c->mon->wh - ( selmon->showbar ? bh : 0 );
+                    if (selmon->showbar)
+                        c->y = selmon->my + bh;
+                    c->x = selmon->mx;
+                    break;;
+                case 4:
+                    selmon->sel = c;
+                    c->tags = 1 << 20;
+                    selmon->scratchvisible = 1;
+                    c->issticky = 1;
+                    c->isfloating = 1;
+                    centerwindow();
+                    break;;
+                case 1:
+                    c->isfloating = 1;
+                    break;;
+                case 0:
+                    c->isfloating = 0;
+                    break;;
+            }
+
 			c->tags |= r->tags;
 			for (m = mons; m && m->num != r->monitor; m = m->next);
 			if (m)
@@ -534,19 +729,30 @@ arrange(Monitor *m)
 	if (m) {
 		arrangemon(m);
 		restack(m);
-	} else for (m = mons; m; m = m->next)
+    } else for (m = mons; m; m = m->next) {
 		arrangemon(m);
+    }
 }
 
 void
 arrangemon(Monitor *m)
 {
+    int tbw;
 	strncpy(m->ltsymbol, m->lt[m->sellt]->symbol, sizeof m->ltsymbol);
 	if (m->lt[m->sellt]->arrange)
 		m->lt[m->sellt]->arrange(m);
+    else
+        floatl(m);
 
 	if (m == selmon)
 		selmon->clientcount = clientcount();
+    if (m->fullscreen) {
+        tbw = selmon->fullscreen->bw;
+        if (m->fullscreen->isfloating)
+            savefloating(selmon->fullscreen);
+        resize(m->fullscreen, m->mx, m->my + ( m->showbar * bh ), m->mw - (tbw * 2), m->mh - ( m->showbar * bh ) - (tbw * 2), 0);
+    }
+
 }
 
 void
@@ -976,15 +1182,23 @@ cyclelayout(const Arg *arg) {
 	Layout *l;
 	for(l = (Layout *)layouts; l != selmon->lt[selmon->sellt]; l++);
 	if(arg->i > 0) {
-		if(l->symbol && (l + 1)->symbol)
-			setlayout(&((Arg) { .v = (l + 1) }));
-		else
+        if(l->symbol && (l + 1)->symbol) {
+            if ((l + 1)->arrange == &overviewlayout)
+                setlayout(&((Arg) { .v = (l + 2) }));
+            else
+                setlayout(&((Arg) { .v = (l + 1) }));
+        } else {
 			setlayout(&((Arg) { .v = layouts }));
+        }
 	} else {
-		if(l != layouts && (l - 1)->symbol)
-			setlayout(&((Arg) { .v = (l - 1) }));
-		else
+        if(l != layouts && (l - 1)->symbol) {
+            if ((l - 1)->arrange == &overviewlayout)
+			    setlayout(&((Arg) { .v = (l - 2) }));
+            else
+			    setlayout(&((Arg) { .v = (l - 1) }));
+        } else {
 			setlayout(&((Arg) { .v = &layouts[LENGTH(layouts) - 2] }));
+        }
 	}
 }
 
@@ -1303,7 +1517,10 @@ drawbar(Monitor *m)
 
 					// render close button
 					if (!c->islocked) {
-						drw_setscheme(drw, scheme[SchemeClose]);
+                        if (c == selmon->fullscreen)
+                            drw_setscheme(drw, scheme[SchemeActive]);
+                        else
+                            drw_setscheme(drw, scheme[SchemeClose]);
 						if (selmon->gesture != 12) {
 							XSetForeground(drw->dpy, drw->gc, drw->scheme[ColBg].pixel);
 							XFillRectangle(drw->dpy, drw->drawable, drw->gc, x + bh / 6, (bh - 20) / 2, 20, 16);
@@ -1312,7 +1529,7 @@ drawbar(Monitor *m)
 						} else {
 							XSetForeground(drw->dpy, drw->gc, drw->scheme[ColFg].pixel);
 							XFillRectangle(drw->dpy, drw->drawable, drw->gc, x +  6, (bh - 20) / 2 - 2, 20, 16);
-							XSetForeground(drw->dpy, drw->gc, drw->scheme[ColBg].pixel);
+							XSetForeground(drw->dpy, drw->gc, drw->scheme[ColBorder].pixel);
 							XFillRectangle(drw->dpy, drw->drawable, drw->gc, x + 6, (bh - 20) / 2 + 14, 20, 6);
 						}
 					} else {
@@ -1400,7 +1617,7 @@ enternotify(XEvent *e)
 	if ((ev->mode != NotifyNormal || ev->detail == NotifyInferior) && ev->window != root)
 		return;
 	c = wintoclient(ev->window);
-	if (c && selmon->sel && selmon->sel->isfloating && c != selmon->sel &&
+	if (c && selmon->sel && ( selmon->sel->isfloating || NULL == selmon->lt[selmon->sellt]->arrange ) && c != selmon->sel &&
 	(ev->window == root || (c->tags & selmon->sel->tags && c->mon == selmon) || selmon->sel->issticky)) {
 		if (!resizeborder(NULL))
 			return;
@@ -1517,19 +1734,19 @@ focusstack(const Arg *arg)
 {
 	Client *c = NULL, *i;
 
-	if (!selmon->sel)
+	if (!selmon->sel || (selmon->sel->isfullscreen && !selmon->sel->isfakefullscreen))
 		return;
 	if (arg->i > 0) {
-		for (c = selmon->sel->next; c && !ISVISIBLE(c); c = c->next);
+		for (c = selmon->sel->next; c && (!ISVISIBLE(c) || HIDDEN(c)); c = c->next);
 		if (!c)
-			for (c = selmon->clients; c && !ISVISIBLE(c); c = c->next);
+			for (c = selmon->clients; c && (!ISVISIBLE(c) || HIDDEN(c)); c = c->next);
 	} else {
 		for (i = selmon->clients; i != selmon->sel; i = i->next)
-			if (ISVISIBLE(i))
+			if (ISVISIBLE(i) && !HIDDEN(i))
 				c = i;
 		if (!c)
 			for (; i; i = i->next)
-				if (ISVISIBLE(i))
+				if (ISVISIBLE(i) && !HIDDEN(i))
 					c = i;
 	}
 	if (c) {
@@ -1743,6 +1960,88 @@ isuniquegeom(XineramaScreenInfo *unique, size_t n, XineramaScreenInfo *info)
 }
 #endif /* XINERAMA */
 
+int startswith(const char *a, const char *b)
+{
+    char *checker = NULL;
+
+    checker = strstr(a, b);
+    if(checker == a)
+    {
+        return 1;
+    } else {
+        return 0;
+    }
+
+}
+
+int
+xcommand(void)
+{
+	char command[256];
+    char *fcursor;
+    char *indicator="c;:;";
+	char str_signum[16];
+	int i, v, signum, argnum;
+	size_t len_command;
+    Arg arg;
+
+	// Get root name property
+	if (!( gettextprop(root, XA_WM_NAME, command, sizeof(command))) ) {
+        return 0;
+    }
+
+    len_command = strlen(command);
+
+    if (startswith(command, indicator)) {
+        fcursor = command + 4;
+    } else {
+        // no command was found
+        return 0;
+    }
+
+    // Check if a command was found, and if so handle it
+    for (i = 0; i < LENGTH(commands); i++) {
+        // is valid command
+        if (startswith(fcursor, commands[i].cmd)) {
+            fcursor += strlen(commands[i].cmd);
+            // no args
+            if (!strlen(fcursor)) {
+                arg = commands[i].arg;
+            } else {
+                if (fcursor[0] != ';')
+                    continue;
+                fcursor++;
+                switch (commands[i].type) {
+                    case 0:
+                        arg = commands[i].arg;
+                        break;
+                    case 1:
+                        argnum = atoi(fcursor);
+                        if (argnum != 0 && fcursor[0] != '0') {
+                            arg = ((Arg) { .ui = atoi(fcursor) });
+                        } else {
+                            arg = commands[i].arg;
+                        }
+                        break;
+                    case 3:
+                        argnum = atoi(fcursor);
+                        if (argnum != 0 && fcursor[0] != '0') {
+                            arg = ((Arg) { .ui = ( 1 << (atoi(fcursor) - 1) ) });
+                        } else {
+                            arg = commands[i].arg;
+                        }
+                        break;
+                }
+            }
+            commands[i].func(&(arg));
+            break;
+        }
+    }
+    return 1;
+}
+
+
+
 void
 keypress(XEvent *e)
 {
@@ -1908,10 +2207,14 @@ manage(Window w, XWindowAttributes *wa)
 	}
 
 	if (animated && !c->isfullscreen) {
-		resizeclient(c, c->x, c->y - 70, c->w, c->h);
-		animateclient(c,c->x, c->y + 70, 0,0,7,0);
-		if (c->w > selmon->mw - 30 || c->h > selmon->mh - 30)
-			arrange(selmon);
+        resizeclient(c, c->x, c->y - 70, c->w, c->h);
+        animateclient(c,c->x, c->y + 70, 0,0,7,0);
+        if (NULL == c->mon->lt[selmon->sellt]->arrange ) {
+            XRaiseWindow(dpy, c->win);
+        } else {
+            if (c->w > selmon->mw - 30 || c->h > selmon->mh - 30)
+                arrange(selmon);
+        }
 	}
 
 }
@@ -1967,7 +2270,8 @@ motionnotify(XEvent *e)
 		tagwidth = gettagwidth();
 
 	// detect mouse hovering over other monitor
-	if ((m = recttomon(ev->x_root, ev->y_root, 1, 1)) != mon && mon) {
+    m = recttomon(ev->x_root, ev->y_root, 1, 1);
+    if (m && m != selmon) {
 		unfocus(selmon->sel, 1);
 		selmon = m;
 		focus(NULL);
@@ -1977,11 +2281,11 @@ motionnotify(XEvent *e)
 	// leave small deactivator zone
 	if (ev->y_root >= bh - 3) {
 		// hover near floating sel, don't do it if desktop is covered
- 		if (selmon->sel && selmon->sel->isfloating) {
+ 		if (selmon->sel && ( selmon->sel->isfloating || NULL == selmon->lt[selmon->sellt]->arrange )) {
 			Client *c;
 			int tilefound = 0;
 			for(c = m->clients; c; c = c->next) {
-				if (ISVISIBLE(c) && !c->isfloating) {
+				if (ISVISIBLE(c) && !( c->isfloating || NULL == selmon->lt[selmon->sellt]->arrange )) {
 					tilefound = 1;
 					break;
 				}
@@ -2132,11 +2436,25 @@ movemouse(const Arg *arg)
 	occ = 0;
 	tagx = 0;
 	colorclient = 0;
-	if (!(c = selmon->sel))
-		return;
-	if (c->isfullscreen && !c->isfakefullscreen) /* no support moving fullscreen windows by mouse */
+	if (!(c = selmon->sel) || (c->isfullscreen && !c->isfakefullscreen) || c == selmon->overlay)
 		return;
 
+    if (c == selmon->fullscreen) {
+        tempfullscreen();
+        return;
+    }
+
+    if (c->snapstatus) {
+        resetsnap(c);
+        return;
+    }
+
+	if (NULL == selmon->lt[selmon->sellt]->arrange) {
+        //unmaximize in floating layout
+		if (c->x >= selmon->mx - 100 && c->y >= selmon->my + bh - 100 && c->w >= selmon->mw - 100 && c->h >= selmon->mh - 100) {
+			resize(c, c->sfx, c->sfy, c->sfw, c->sfh, 0);
+        }
+    }
 	restack(selmon);
 	ocx = c->x;
 	ocy = c->y;
@@ -2236,7 +2554,7 @@ movemouse(const Arg *arg)
 	} while (ev.type != ButtonRelease);
 
 	bardragging = 0;
-	if (ev.xmotion.y_root < bh) {
+	if (ev.xmotion.y_root < selmon->my + bh) {
 		if (!tagwidth)
 			tagwidth = gettagwidth();
 
@@ -2275,11 +2593,22 @@ movemouse(const Arg *arg)
 		if (ev.xmotion.x_root > selmon->mx + selmon->mw - 50 && ev.xmotion.x_root < selmon->mx + selmon->mw  + 1) {
 			// snap to half of the screen like on gnome, right side
 			if (ev.xmotion.state & ShiftMask || NULL == c->mon->lt[c->mon->sellt]->arrange) {
-				savefloating(selmon->sel);
 				XSetWindowBorder(dpy, selmon->sel->win, scheme[SchemeSel][ColBorder].pixel);
-				animateclient(c, selmon->mx + (selmon->mw / 2) + 2, selmon->my + bh + 2, (selmon->mw / 2) - 8, selmon->mh - bh - 8, 15, 0);
+
+                c->sfh = c->h;
+                c->sfw = c->w;
+                c->sfx = ocx;
+                c->sfy = ocy;
+
+                if (ev.xmotion.y_root < selmon->my + selmon->mh / 7)
+                    c->snapstatus = 2;
+                else if (ev.xmotion.y_root > selmon->my + 6 * (selmon->mh / 7))
+                    c->snapstatus = 4;
+                else
+                    c->snapstatus = 3;
+                applysnap(c, c->mon);
 			} else {
-				if (ev.xmotion.y_root < (2 * selmon->mh) / 3)
+				if (ev.xmotion.y_root < selmon->my + (2 * selmon->mh) / 3)
 					moveright(arg);
 				else
 					tagtoright(arg);
@@ -2290,11 +2619,22 @@ movemouse(const Arg *arg)
 		} else if (ev.xmotion.x_root < selmon->mx + 50 && ev.xmotion.x_root > selmon->mx - 1) {
 			// snap to half of the screen like on gnome, left side
 			if (ev.xmotion.state & ShiftMask || NULL == c->mon->lt[c->mon->sellt]->arrange) {
-				savefloating(selmon->sel);
 				XSetWindowBorder(dpy, selmon->sel->win, scheme[SchemeSel][ColBorder].pixel);
-				animateclient(c, selmon->mx + 2, selmon->my + bh + 2, (selmon->mw / 2) - 8, selmon->mh - bh - 8, 15, 0);
+
+                c->sfh = c->h;
+                c->sfw = c->w;
+                c->sfx = ocx;
+                c->sfy = ocy;
+
+                if (ev.xmotion.y_root < selmon->my + selmon->mh / 7)
+                    c->snapstatus = 8;
+                else if (ev.xmotion.y_root > selmon->my + 6 * (selmon->mh / 7))
+                    c->snapstatus = 6;
+                else
+                    c->snapstatus = 7;
+                applysnap(c, c->mon);
 			} else {
-				if (ev.xmotion.y_root < (2 * selmon->mh) / 3)
+				if (ev.xmotion.y_root < selmon->my + (2 * selmon->mh) / 3)
 					moveleft(arg);
 				else
 					tagtoleft(arg);
@@ -2317,7 +2657,9 @@ movemouse(const Arg *arg)
 		} else {
 			// maximize window
 			XSetWindowBorder(dpy, selmon->sel->win, scheme[SchemeSel][ColBorder].pixel);
-			animateclient(selmon->sel, selmon->mx, selmon->my + bh, selmon->mw, selmon->mh, 6, 0);
+            savefloating(c);
+            selmon->sel->snapstatus = 9;
+            arrange(selmon);
 		}
 	}
 }
@@ -2377,7 +2719,7 @@ gesturemouse(const Arg *arg)
 // hover over the border to move/resize a window
 int
 resizeborder(const Arg *arg) {
-	if (!(selmon->sel && selmon->sel->isfloating))
+	if (!(selmon->sel && (selmon->sel->isfloating || NULL == selmon->lt[selmon->sellt]->arrange )))
 		return 0;
 	XEvent ev;
 	Time lasttime = 0;
@@ -2425,6 +2767,7 @@ resizeborder(const Arg *arg) {
 	} while (ev.type != ButtonPress && inborder);
 	XUngrabPointer(dpy, CurrentTime);
 	if (ev.type == ButtonPress) {
+        resetsnap(c);
 		if (y < c->y && x > c->x + (c->w * 0.5) - c->w / 4 && x < c->x + (c->w * 0.5) + c->w / 4) {
 			XWarpPointer(dpy, None, root, 0, 0, 0, 0, x, c->y + 10);
 			movemouse(NULL);
@@ -2538,6 +2881,7 @@ dragmouse(const Arg *arg)
 				togglefloating(NULL);
 			}
 		}
+        resetsnap(c);
 			if (ev.xmotion.x_root > c->x && ev.xmotion.x_root < c->x  + c->w)
 				XWarpPointer(dpy, None, root, 0, 0, 0, 0, ev.xmotion.x_root, c->y + 20);
 			else
@@ -2675,8 +3019,11 @@ dragrightmouse(const Arg *arg)
 		} else {
 			resizemouse(NULL);
 		}
-
-	} else {
+        
+        if (NULL == selmon->lt[selmon->sellt]->arrange ) {
+            savefloating(c);
+    	}
+    } else {
 		if (tempc != selmon->sel) {
 			focus(tempc);
 		}
@@ -2875,8 +3222,10 @@ propertynotify(XEvent *e)
 		resizebarwin(selmon);
 		updatesystray();
 	}
-	if ((ev->window == root) && (ev->atom == XA_WM_NAME))
-		updatestatus();
+    if ((ev->window == root) && (ev->atom == XA_WM_NAME)) {
+		if (!xcommand())
+    		updatestatus();
+    }
 	else if (ev->state == PropertyDelete)
 		return; /* ignore */
 	else if ((c = wintoclient(ev->window))) {
@@ -3010,6 +3359,11 @@ resizemouse(const Arg *arg)
 	if (!(c = selmon->sel))
 		return;
 
+    if (c == selmon->fullscreen) {
+        tempfullscreen();
+        return;
+    }
+
 	if (c->isfullscreen && !c->isfakefullscreen) /* no support resizing fullscreen windows by mouse */
 		return;
 
@@ -3018,6 +3372,7 @@ resizemouse(const Arg *arg)
 	ocy = c->y;
 	ocx2 = c->x + c->w;
 	ocy2 = c->y + c->h;
+
 	if (!XQueryPointer (dpy, c->win, &dummy, &dummy, &di, &di, &nx, &ny, &dui))
 	       return;
 
@@ -3149,6 +3504,11 @@ resizemouse(const Arg *arg)
 		selmon = m;
 		focus(NULL);
 	}
+
+    if (NULL == selmon->lt[selmon->sellt]->arrange) {
+        savefloating(c);
+        c->snapstatus = 0;
+    }
 }
 
 
@@ -3480,18 +3840,67 @@ setfullscreen(Client *c, int fullscreen)
 	}
 }
 
+void commandprefix(const Arg *arg) {
+    tagprefix = arg->ui;
+}
+
+void
+commandlayout(const Arg *arg) {
+    int layoutnumber;
+    Arg *larg;
+    if (arg->ui || arg->ui >= LENGTH(layouts))
+        layoutnumber = arg->ui;
+    else
+        layoutnumber = 0;
+
+    larg = &((Arg) { .v = &layouts[layoutnumber] });
+    setlayout(larg);
+}
+
 void
 setlayout(const Arg *arg)
 {
-	if (!arg || !arg->v || arg->v != selmon->lt[selmon->sellt])
-		selmon->sellt = selmon->pertag->sellts[selmon->pertag->curtag] ^= 1;
-	if (arg && arg->v)
-		selmon->lt[selmon->sellt] = selmon->pertag->ltidxs[selmon->pertag->curtag][selmon->sellt] = (Layout *)arg->v;
-	strncpy(selmon->ltsymbol, selmon->lt[selmon->sellt]->symbol, sizeof selmon->ltsymbol);
-	if (selmon->sel)
-		arrange(selmon);
-	else
-		drawbar(selmon);
+    int multimon;
+    multimon = 0;
+    if (tagprefix) {
+        int i;
+        Monitor *m;
+        multimon = 1;
+        for (m = mons; m; m = m->next) {
+            for (i = 0; i < 20; ++i) {
+                if (!arg || !arg->v || arg->v != m->lt[m->sellt])
+                    m->pertag->sellts[i] ^= 1;
+                if (arg && arg->v)
+                    m->pertag->ltidxs[i][m->pertag->sellts[i]] = (Layout *)arg->v;
+            }
+        }
+        tagprefix = 0;
+        setlayout(arg);
+    } else {
+        if (!arg || !arg->v || arg->v != selmon->lt[selmon->sellt])
+            selmon->sellt = selmon->pertag->sellts[selmon->pertag->curtag] ^= 1;
+        if (arg && arg->v)
+            selmon->lt[selmon->sellt] = selmon->pertag->ltidxs[selmon->pertag->curtag][selmon->sellt] = (Layout *)arg->v;
+    }
+    strncpy(selmon->ltsymbol, selmon->lt[selmon->sellt]->symbol, sizeof selmon->ltsymbol);
+    if (selmon->sel)
+        arrange(selmon);
+    else
+        drawbar(selmon);
+    if (multimon) {
+        Monitor *tmpmon;
+        Monitor *m;
+        tmpmon = selmon;
+        multimon = 0;
+	    for (m = mons; m; m = m->next) {
+            if (m != selmon) {
+                selmon = m;
+                setlayout(arg);
+            }
+        }
+        selmon = tmpmon;
+        focus(NULL);
+    }
 }
 
 /* arg > 1.0 will set mfact absolutely */
@@ -3760,8 +4169,8 @@ void followview(const Arg *arg)
 	if (!selmon->sel)
 		return;
 	Client *c = selmon->sel;
-	view(arg);
-	c->tags = selmon->tagset[selmon->seltags];
+	c->tags = 1 << (selmon->pertag->prevtag - 1);
+    view(&((Arg) { .ui = 1 << ( selmon->pertag->prevtag -1 ) }));
 	focus(c);
 	arrange(selmon);
 }
@@ -3809,9 +4218,6 @@ tagtoleft(const Arg *arg) {
 	int oldx;
 	Client *c;
 
-	if (selmon->pertag->curtag == 1)
-		return;
-
 	if (!selmon->sel)
 		return;
 
@@ -3819,6 +4225,9 @@ tagtoleft(const Arg *arg) {
         setoverlaymode(3);
         return;
     }
+
+	if (selmon->pertag->curtag == 1)
+		return;
 
 	c = selmon->sel;
 	resetsticky(c);
@@ -3866,6 +4275,12 @@ void downpress(const Arg *arg)
         return;
     if (!selmon->sel)
         return;
+
+    if (selmon->sel->snapstatus) {
+        resetsnap(selmon->sel);
+        return;
+    }
+
     if (selmon->sel == selmon->overlay) {
         setoverlaymode(2);
         return;
@@ -3919,7 +4334,11 @@ tagtoright(const Arg *arg) {
 void
 togglealttag(const Arg *arg)
 {
-	showalttag = !showalttag;
+    if (arg->ui < 2)
+        showalttag = arg->ui;
+    else
+        showalttag = !showalttag;
+
 	Monitor *m;
 	for (m = mons; m; m = m->next)
 		drawbar(m);
@@ -3928,10 +4347,16 @@ togglealttag(const Arg *arg)
 }
 
 void alttabfree(const Arg *arg) {
-	if (!freealttab)
-		freealttab = 1;
-	else
-		freealttab = 0;
+
+    if (arg->ui < 2) {
+        freealttab = arg->ui;
+    } else {
+        if (!freealttab)
+            freealttab = 1;
+        else
+            freealttab = 0;
+    }
+
 	grabkeys();
 }
 
@@ -3946,7 +4371,7 @@ togglesticky(const Arg *arg)
 }
 
 void toggleprefix(const Arg *arg) {
-	tagprefix = 1;
+	tagprefix ^= 1;
 	drawbar(selmon);
 }
 
@@ -3954,7 +4379,10 @@ void toggleprefix(const Arg *arg) {
 void
 toggleanimated(const Arg *arg)
 {
-	animated = !animated;
+    if (arg->ui == 2 || arg->ui > 1)
+	    animated = !animated;
+    else
+        animated = arg->ui;
 }
 
 // double the window refresh rate
@@ -4064,6 +4492,7 @@ keyresize(const Arg *arg) {
 	int nw = (c->w + mpositions[arg->i][0]);
 	int nh = (c->h + mpositions[arg->i][1]);
 
+    resetsnap(c);
 
 	if (selmon->lt[selmon->sellt]->arrange && !c->isfloating)
 	return;
@@ -4099,9 +4528,12 @@ centerwindow() {
 
 // toggle vacant tags
 void
-toggleshowtags()
+toggleshowtags(const Arg *arg)
 {
-	selmon->showtags = !selmon->showtags;
+    if (arg->ui < 2)
+        selmon->showtags = arg->ui;
+    else
+        selmon->showtags = !selmon->showtags;
 	drawbar(selmon);
 }
 
@@ -4135,18 +4567,25 @@ togglebar(const Arg *arg)
 		animated = 1;
 }
 
-void savefloating(Client *c) {
+void
+savefloating(Client *c) {
 	c->sfx = c->x;
 	c->sfy = c->y;
 	c->sfw = c->w;
 	c->sfh = c->h;
 }
 
-void restorefloating(Client *c) {
+void
+restorefloating(Client *c) {
 	c->x = c->sfx;
 	c->y = c->sfy;
 	c->w = c->sfw;
 	c->h = c->sfh;
+}
+
+void
+applysize(Client *c) {
+    resize(c, c->x + 1, c->y, c->w, c->h, 0);
 }
 
 void
@@ -4220,6 +4659,8 @@ toggletag(const Arg *arg)
 
 void togglescratchpad(const Arg *arg) {
 	Client *c;
+    int scratchexists;
+    scratchexists = 0;
 	if (&overviewlayout == selmon->lt[selmon->sellt]->arrange) {
 		return;
 	}
@@ -4229,23 +4670,48 @@ void togglescratchpad(const Arg *arg) {
 	else
 		selmon->scratchvisible = 1;
 
-		for(c = selmon->clients; c; c = c->next) {
-			if (c->tags == 1 << 20) {
-				c->issticky = selmon->scratchvisible;
-				if (!c->isfloating)
-					c->isfloating = 1;
-			}
-		}
+    for(c = selmon->clients; c; c = c->next) {
+        if (c->tags == 1 << 20) {
+            if (!scratchexists)
+                scratchexists = 1;
+            c->issticky = selmon->scratchvisible;
+            if (!c->isfloating)
+                c->isfloating = 1;
+        }
+    }
+    
+    if (!scratchexists){
+        // spawn scratchpad
+        spawn(&((Arg) { .v = termscratchcmd }));
+        return;
+    }
 
-		arrange(selmon);
-		focus(NULL);
-		focus(c);
+    if (selmon->scratchvisible) {
 
-		for(c = selmon->clients; c; c = c->next) {
-			if (c->tags == 1 << 20) {
-				XRaiseWindow(dpy, c->win);
-			}
-		}
+        for(c = selmon->clients; c; c = c->next) {
+            if (c->tags == 1 << 20) {
+                XRaiseWindow(dpy, c->win);
+            }
+        }
+
+        for(c = selmon->clients; c; c = c->next) {
+            if (c->tags == 1 << 20) {
+                if ((!selmon->sel || !selmon->sel->isfullscreen) && c->issticky) {
+                    selmon->sel = c;
+                    arrange(selmon);
+                    focus(c);
+                    warp(c);
+                } else {
+                    arrange(selmon);
+                }
+                break;
+            }
+        }
+
+    } else {
+        focus(NULL);
+        arrange(selmon);
+    }
 
 }
 
@@ -4262,6 +4728,9 @@ void createscratchpad(const Arg *arg) {
 	else
 		arrange(selmon);
 	focus(NULL);
+    if (!selmon->scratchvisible) {
+        togglescratchpad(NULL);
+    }
 
 }
 
@@ -4807,16 +5276,18 @@ view(const Arg *arg)
 	int ui = computeprefix(arg);
 	int i;
 
-
 	selmon->seltags ^= 1; /* toggle sel tagset */
 	if (ui & TAGMASK) {
 		selmon->tagset[selmon->seltags] = ui & TAGMASK;
-		selmon->pertag->prevtag = selmon->pertag->curtag;
 
-		if (ui == ~0)
+        if (ui == ~0) {
+		    selmon->pertag->prevtag = selmon->pertag->curtag;
 			selmon->pertag->curtag = 0;
-		else {
+        } else {
 			for (i = 0; !(ui & 1 << i); i++) ;
+            if ((i + 1) == selmon->pertag->curtag)
+                return;
+		    selmon->pertag->prevtag = selmon->pertag->curtag;
 			selmon->pertag->curtag = i + 1;
 		}
 	} else {
@@ -4847,8 +5318,6 @@ moveleft(const Arg *arg) {
 
 void
 animleft(const Arg *arg) {
-	if (selmon->pertag->curtag == 1 || selmon->pertag->curtag == 0)
-		return;
 
 	Client *c;
 	Client *tempc;
@@ -4857,9 +5326,13 @@ animleft(const Arg *arg) {
 	// windows like behaviour in floating layout
 	if (selmon->sel && NULL == selmon->lt[selmon->sellt]->arrange) {
 		XSetWindowBorder(dpy, selmon->sel->win, scheme[SchemeSel][ColBg].pixel);
-		animateclient(selmon->sel, selmon->mx + 2, selmon->my + bh + 2, (selmon->mw / 2) - 8, selmon->mh - bh - 8, 15, 0);
+        changesnap(selmon->sel, 3);
 		return;
 	}
+
+	if (selmon->pertag->curtag == 1 || selmon->pertag->curtag == 0)
+		return;
+
 	if (animated) {
 		for(tempc = selmon->clients; tempc; tempc = tempc->next) {
 			if (tempc->tags & 1 << selmon->pertag->curtag - 2 && !tempc->isfloating && selmon->pertag &&
@@ -4877,21 +5350,20 @@ animleft(const Arg *arg) {
 
 void
 animright(const Arg *arg) {
-	if (selmon->pertag->curtag >= 20 || selmon->pertag->curtag == 0)
-		return;
 
 	Client *c;
 	Client *tempc;
 	int tmpcounter = 0;
 
 	if (selmon->sel && NULL == selmon->lt[selmon->sellt]->arrange) {
-          animateclient(selmon->sel, selmon->mx + (selmon->mw / 2) + 2,
-                        selmon->my + bh + 2, (selmon->mw / 2) - 8,
-                        selmon->mh - bh - 8, 15, 0);
           XSetWindowBorder(dpy, selmon->sel->win,
                            scheme[SchemeSel][ColBorder].pixel);
+          changesnap(selmon->sel, 1);
           return;
 	}
+
+	if (selmon->pertag->curtag >= 20 || selmon->pertag->curtag == 0)
+		return;
 
 	if (animated) {
 		for(tempc = selmon->clients; tempc; tempc = tempc->next) {
@@ -4948,13 +5420,8 @@ void upkey(const Arg *arg) {
 	if (NULL == selmon->lt[selmon->sellt]->arrange) {
 		Client *c;
 		c = selmon->sel;
-		if (c->x >= selmon->mx - 100 && c->y >= selmon->my + bh - 100 && c->w >= selmon->mw - 100 && c->h >= selmon->mh - 100) {
-			hide(c);
-		} else {
-			savefloating(c);
-			XSetWindowBorder(dpy, c->win, scheme[SchemeSel][ColBorder].pixel);
-			animateclient(c, selmon->mx, selmon->my + bh, selmon->mw, selmon->mh, 6, 0);
-		}
+        XSetWindowBorder(dpy, c->win, scheme[SchemeSel][ColBorder].pixel);
+        changesnap(c, 0);
 		return;
 	}
 	focusstack(arg);
@@ -4978,22 +5445,10 @@ int unhideone()
 
 void downkey(const Arg *arg) {
 	if (NULL == selmon->lt[selmon->sellt]->arrange) {
-		Client *c;
-
-		for (c = selmon->clients; c; c = c->next) {
-			if (ISVISIBLE(c) && HIDDEN(c)) {
-				show(c);
-				focus(c);
-				restack(selmon);
-				return;
-			}
-		}
-
 		if (!selmon->sel)
 			return;
-		c = selmon->sel;
         // unmaximize
-		resize(c, c->sfx, c->sfy, c->sfw, c->sfh, 0);
+        changesnap(selmon->sel, 2);
 		return;
 	}
 	focusstack(arg);
@@ -5029,10 +5484,9 @@ shiftview(const Arg *arg)
 
 	do {
 		if(i > 0) // left circular shift
-			nextseltags = (curseltags << i) | (curseltags >> (LENGTH(tags) - i));
-
+			nextseltags = (curseltags << i) | (curseltags >> (LENGTH(tags) - 1 - i));
 		else // right circular shift
-			nextseltags = curseltags >> (- i) | (curseltags << (LENGTH(tags) + i));
+			nextseltags = curseltags >> (- i) | (curseltags << (LENGTH(tags) - 1 + i));
 
                 // Check if tag is visible
 		for (c = selmon->clients; c && !visible; c = c->next)
@@ -5171,6 +5625,7 @@ overtoggle(const Arg *arg){
 	c = selmon->sel;
 	unsigned int tmptag;
 
+
     if (!selmon->clients || (selmon->clients == selmon->overlay && !selmon->overlay->next)) {
         if (selmon->pertag->curtag == 0)
             lastview(NULL);
@@ -5179,11 +5634,15 @@ overtoggle(const Arg *arg){
 
 	if (selmon->scratchvisible)
 		togglescratchpad(NULL);
+	if (selmon->fullscreen)
+        tempfullscreen();
 	if (selmon->pertag->curtag == 0) {
 		tmptag = selmon->pertag->prevtag;
+        restoreallfloating(selmon);
 		winview(NULL);
 	} else {
 		tmptag = selmon->pertag->curtag;
+        saveallfloating(selmon);
 		selmon->lt[selmon->sellt] = selmon->pertag->ltidxs[0][selmon->sellt] = (Layout *)&layouts[6];
 		view(arg);
 		if (selmon->lt[selmon->sellt] != (Layout *)&layouts[6] )
@@ -5195,7 +5654,10 @@ overtoggle(const Arg *arg){
 
 void
 lastview(const Arg *arg) {
-	view(&((Arg) { .ui = 1 << ( selmon->pertag->prevtag -1 ) }));
+    if (selmon->pertag->curtag == selmon->pertag->prevtag)
+        focuslastclient(NULL);
+	else
+        view(&((Arg) { .ui = 1 << ( selmon->pertag->prevtag -1 ) }));
 }
 
 // overtoggle but with monocle layout
@@ -5346,6 +5808,9 @@ void
 zoom(const Arg *arg)
 {
 	Client *c = selmon->sel;
+	if(!c)
+		return;
+
 	XRaiseWindow(dpy, c->win);
 	if (!selmon->lt[selmon->sellt]->arrange
 	|| (selmon->sel && selmon->sel->isfloating))

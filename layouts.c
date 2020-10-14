@@ -41,6 +41,43 @@ bstack(Monitor *m) {
 	}
 }
 
+
+/*
+ * Different ids for snapping positions
+ *
+ *    ##################################
+ *    # 8             1              2 # 
+ *    #                                # 
+ *    #                                # 
+ *    #                                # 
+ *    # 7             9              3 # 
+ *    #                                # 
+ *    #                                # 
+ *    # 6             5              4 # 
+ *    ##################################
+ *
+ * */
+
+void floatl(Monitor *m) {
+    Client *c;
+    int animatestore;
+    animatestore = animated;
+    animated = 0;
+    for(c = m->clients; c; c = c->next) {
+        if (!(ISVISIBLE(c)))
+            continue;
+        if (c->snapstatus)
+            applysnap(c, m);
+    }
+    restack(selmon);
+    if (selmon->sel)
+        XRaiseWindow(dpy, selmon->sel->win);
+    if (animatestore)
+        animated = 1;
+}
+
+
+
 void
 bstackhoriz(Monitor *m) {
 	int w, mh, mx, tx, ty, th, framecount;

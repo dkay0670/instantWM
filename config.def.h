@@ -72,6 +72,8 @@ static const char *tags[] = { "1", "2", "3", "4", "5", "6", "7", "8", "9", "10",
 /* ffox, programming1, term, music, steam, folder, play icon, document, message  */
 static const char *tagsalt[] = { "", "{}", "$", "", "", "", "", "", "" };
 
+static const char scratchpadname[] = "instantscratchpad";
+
 static const char *upvol[] = {"/usr/share/instantassist/utils/p.sh", "+", NULL};
 static const char *downvol[] = {"/usr/share/instantassist/utils/p.sh", "-", NULL};
 static const char *mutevol[] = {"/usr/share/instantassist/utils/p.sh", "m", NULL};
@@ -89,7 +91,14 @@ static const Rule rules[] = {
 	{"Onboard", NULL,     NULL,       0,                1,           -1},
 	{"floatmenu", NULL,     NULL,        0,            1,           -1},
 	{"Welcome.py", NULL,     NULL,        0,            1,           -1},
+	{"Pamac-installer", NULL,     NULL,        0,            1,           -1},
 	{"xpad", NULL,     NULL,        0,            1,           -1},
+	{"instantfloat", NULL,     NULL,        0,            2,           -1},
+	{scratchpadname, NULL,     NULL,        0,            4,           -1},
+	{"kdeconnect.daemon", NULL,     NULL,        0,            3,           -1},
+	{"Panther", NULL,     NULL,        0,            3,           -1},
+	{"org-wellkord-globonote-Main", NULL,     NULL,        0,            1,           -1},
+	{"Peek", NULL,     NULL,        0,            1,           -1},
 	{"ROX-Filer", NULL,     NULL,        0,            0,           -1},
 };
 
@@ -135,9 +144,12 @@ static const char *clipmenucmd[] = {"instantclipmenu", NULL};
 static const char *smartcmd[] = {"instantmenu_smartrun", NULL};
 static const char *instantmenustcmd[] = {"instantmenu_run_st", NULL};
 static const char *termcmd[] = {".config/instantos/default/terminal", NULL};
+static const char *termscratchcmd[] = {".config/instantos/default/terminal", "-c", scratchpadname, NULL};
 static const char *quickmenucmd[] = {"quickmenu", NULL};
 static const char *instantassistcmd[] = {"instantassist", NULL};
+static const char *instantrepeatcmd[] = {"instantrepeat", NULL};
 static const char *instantpacmancmd[] = {"instantpacman", NULL};
+static const char *instantsharecmd[] = {"instantshare", "snap", NULL};
 static const char *nautiluscmd[] = {".config/instantos/default/filemanager", NULL};
 static const char *slockcmd[] = {"ilock", NULL};
 static const char *langswitchcmd[] = {"ilayout", NULL};
@@ -150,14 +162,14 @@ static const char *onboardcmd[] = {"onboard", NULL};
 static const char *instantshutdowncmd[] = {"instantshutdown", NULL};
 static const char *systemmonitorcmd[] = {".config/instantos/default/systemmonitor", NULL};
 static const char *notifycmd[] = {"instantnotify", NULL};
-static const char *rangercmd[] = { "urxvt", "-e", "ranger", NULL };
+static const char *rangercmd[] = { "st", "-e", "ranger", NULL };
 static const char *panther[] = { ".config/instantos/default/appmenu", NULL};
 static const char *controlcentercmd[] = { "instantsettings", NULL};
 static const char *displaycmd[] = { "instantdisper", NULL};
 static const char *pavucontrol[] = { "pavucontrol", NULL};
 static const char *instantsettings[] = { "instantsettings", NULL};
 static const char  *clickcmd[] = { "autoclicker", NULL };
-static const char  *codecmd[] = { "code", NULL };
+static const char  *codecmd[] = { "instantutils open graphicaleditor", NULL };
 static const char  *startmenucmd[] = { "instantstartmenu", NULL };
 
 static const char  *scrotcmd[] = { "/usr/share/instantassist/assists/s/s.sh", NULL };
@@ -187,7 +199,7 @@ ResourcePref resources[] = {
 		{ "darkminimize",    STRING,  &col_dark_orange },
 
 		{ "border",        STRING,  &col_pastel_blue },
-		{ "activeborder",        STRING,  &col_blue },
+		{ "activeborder",        STRING,  &col_light_blue },
 
 		{ "activetag",        STRING,  &col_green },
 		{ "darkactivetag",        STRING,  &col_dark_green },
@@ -205,6 +217,18 @@ ResourcePref resources[] = {
 		{ "barheight",        INTEGER,  &barheight },
 		{ "font",        STRING,  &xresourcesfont },
 
+};
+
+static Xcommand commands[] = {
+	/* signum       function        argument  */
+	{ "overlay",    setoverlay,      {0}, 0 },
+	{ "tag",        view,      { .ui = 2 }, 3 },
+	{ "animated",   toggleanimated,      { .ui = 2 }, 1 },
+	{ "alttab",   alttabfree,      { .ui = 2 }, 1 },
+	{ "layout",   commandlayout,      { .ui = 0 }, 1 },
+	{ "prefix",   commandprefix,      { .ui = 1 }, 1 },
+	{ "alttag",   togglealttag,      { .ui = 0 }, 1 },
+	{ "hidetags",   toggleshowtags,      { .ui = 0 }, 1 },
 };
 
 static Key dkeys[] = {
@@ -264,7 +288,9 @@ static Key keys[] = {
 	{MODKEY | ControlMask, XK_q, spawn, {.v = instantshutdowncmd } },
 	{MODKEY, XK_y, spawn, {.v = panther} },
 	{MODKEY, XK_a, spawn, {.v = instantassistcmd} },
+	{MODKEY|ShiftMask, XK_a, spawn, {.v = instantrepeatcmd} },
 	{MODKEY|ControlMask, XK_i, spawn, {.v = instantpacmancmd} },
+	{MODKEY|ShiftMask, XK_i, spawn, {.v = instantsharecmd} },
 	{MODKEY, XK_w, setoverlay, {0} },
 	{MODKEY | ControlMask, XK_w, createoverlay, {0} },
 	{MODKEY, XK_g, spawn, {.v = notifycmd} },
@@ -291,16 +317,17 @@ static Key keys[] = {
 	{MODKEY|ShiftMask, XK_Up, uppress, {0}},
 	{MODKEY|ControlMask, XK_j, pushdown, {0} },
 	{MODKEY|ControlMask, XK_k, pushup, {0} },
-	{MODKEY|Mod1Mask, XK_s, togglealttag, {0} },
-	{MODKEY|ShiftMask|Mod1Mask, XK_s, toggleanimated, {0} },
+	{MODKEY|Mod1Mask, XK_s, togglealttag, { .ui = 2 } },
+	{MODKEY|ShiftMask|Mod1Mask, XK_s, toggleanimated, { .ui = 2 } },
 	{MODKEY|ControlMask,                    XK_s,      togglesticky,   {0} },
 	{MODKEY|ShiftMask,                    XK_s,      createscratchpad, {0}},
 	{MODKEY,                    XK_s, togglescratchpad, {0}},
 	{MODKEY|ShiftMask, XK_f, togglefakefullscreen, {0} },
+	{MODKEY|ControlMask, XK_f, tempfullscreen, {0} },
 	{MODKEY | ShiftMask | Mod1Mask, XK_d, toggledoubledraw, {0} },
 	{MODKEY|ShiftMask, XK_w, warpfocus, {0} },
 	{MODKEY|Mod1Mask, XK_w, centerwindow, {0} },
-	{MODKEY|ShiftMask|ControlMask, XK_s, toggleshowtags, {0} },
+	{MODKEY|ShiftMask|ControlMask, XK_s, toggleshowtags, { .ui = 2 } },
 	{MODKEY, XK_i, incnmaster, {.i = +1}},
 	{MODKEY, XK_d, incnmaster, {.i = -1}},
 	{MODKEY, XK_h, setmfact, {.f = -0.05}},
