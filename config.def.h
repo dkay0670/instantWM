@@ -274,16 +274,15 @@ static Key dkeys[] = {
 static Key keys[] = {
 	/* modifier                     key        function        argument */
 
-	{MODKEY|Mod1Mask,				XK_j,  	keyresize,	{.i = 0}},
-	{MODKEY|Mod1Mask,				XK_k,  	keyresize,	{.i = 1}},
-	{MODKEY|Mod1Mask,				XK_l,  	keyresize,	{.i = 2}},
-	{MODKEY|Mod1Mask,				XK_h,  	keyresize,	{.i = 3}},
-	{MODKEY|ControlMask,			XK_d,  	distributeclients,	{0}},
-	{MODKEY|ShiftMask,				XK_d,  	drawwindow,	{0}},
-	{MODKEY|ShiftMask,				XK_Escape,  	spawn,	{.v = systemmonitorcmd}},
-
-	{MODKEY, XK_r, spawn, {.v = rangercmd } },
-	{MODKEY|ControlMask|Mod1Mask, XK_r, redrawwin, {0} },
+	{MODKEY|Mod1Mask,		XK_j,	   keyresize, 		{.i = 0}},
+	{MODKEY|Mod1Mask,		XK_k,	   keyresize,		{.i = 1}},
+	{MODKEY|Mod1Mask,		XK_l,	   keyresize,		{.i = 2}},
+	{MODKEY|Mod1Mask,		XK_h,	   keyresize,		{.i = 3}},
+	{MODKEY|ControlMask,		XK_d,	   distributeclients,	{0}},
+	{MODKEY|ShiftMask,		XK_d, 	   drawwindow,		{0}},
+	{MODKEY|ShiftMask,		XK_Escape, spawn,		{.v = systemmonitorcmd}},
+	{MODKEY, 			XK_r,	   spawn, 		{.v = rangercmd } },
+	{MODKEY|ControlMask|Mod1Mask,   XK_r, 	   redrawwin,		{0} },
 	{MODKEY, XK_n, spawn, {.v = nautiluscmd } },
 	{MODKEY | ControlMask, XK_q, spawn, {.v = instantshutdowncmd } },
 	{MODKEY, XK_y, spawn, {.v = panther} },
